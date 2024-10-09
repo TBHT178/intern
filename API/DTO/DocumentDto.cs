@@ -1,4 +1,4 @@
-namespace FlightSystemManagement.DTO
+namespace API.DTO
 {
     public class DocumentDto
     {

@@ -1,16 +1,14 @@
-using FlightSystemManagement.Entity;
+using API.Entity;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using FlightSystemManagement.DTO;
+using API.DTO;
 
-namespace FlightSystemManagement.Services.Interfaces
+namespace API.Services.Interfaces
 {
     public interface IDocumentService
     {
-        Task<Document> CreateDocumentAsync(Document document);
-        Task<IEnumerable<Document>> GetDocumentsAsync();
-        Task<Document> GetDocumentByIdAsync(int id);
-        //get all document
-        Task<IEnumerable<DocumentDto>> GetAllDocumentsAsync();
+        Task<Document> CreateDocumentAsync(int flightId, Document document, List<int> permissionGroupIds);
+        
+        Task<Document> UpdateDocumentAsync(int documentId, Document updatedDocument);
     }
 }

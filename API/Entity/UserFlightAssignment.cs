@@ -1,4 +1,4 @@
-namespace FlightSystemManagement.Entity
+namespace API.Entity
 {
     public class UserFlightAssignment
     {

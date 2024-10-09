@@ -1,101 +1,101 @@
-using FlightSystemMangement.Entity;
-
+using API.Entity;
 using Microsoft.EntityFrameworkCore;
 
+namespace API.Data
+{
     public class FlightSystemContext : DbContext
     {
-        // Constructor
         public FlightSystemContext(DbContextOptions<FlightSystemContext> options) : base(options)
         {
         }
 
         // DbSets for entities
-        public DbSet<User> User { get; set; }
-        public DbSet<Role> Role { get; set; }
-        public DbSet<UserRole> UserRole { get; set; }
-        public DbSet<Document> Document { get; set; }
-        public DbSet<DocumentType> DocumentType { get; set; }
-        public DbSet<Permission> Permission { get; set; }
-        public DbSet<Flight> Flight { get; set; }
-        public DbSet<FlightCrew> FlightCrew { get; set; }
-        public DbSet<FlightDocument> FlightDocument { get; set; }
+        public DbSet<User> Users { get; set; }
+        public DbSet<Role> Roles { get; set; }
+        public DbSet<UserRole> UserRoles { get; set; }
+        public DbSet<Document> Documents { get; set; }
+        public DbSet<DocumentType> DocumentTypes { get; set; }
+        public DbSet<Flight> Flights { get; set; }
+        public DbSet<FlightDocument> FlightDocuments { get; set; }
+
+        // Permission-related entities
+        public DbSet<Permission> Permissions { get; set; }
+        public DbSet<PermissionGroup> PermissionGroups { get; set; }
+        public DbSet<PermissionGroupAssignment> PermissionGroupAssignments { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
-            // Set table names explicitly
-            modelBuilder.Entity<User>().ToTable("User");
-            modelBuilder.Entity<Role>().ToTable("Role");
-            modelBuilder.Entity<UserRole>().ToTable("UserRole");
-            modelBuilder.Entity<Document>().ToTable("Document");
-            modelBuilder.Entity<DocumentType>().ToTable("DocumentType");
-            modelBuilder.Entity<Permission>().ToTable("Permission");
-            modelBuilder.Entity<Flight>().ToTable("Flight");
-            modelBuilder.Entity<FlightCrew>().ToTable("FlightCrew");
-            modelBuilder.Entity<FlightDocument>().ToTable("FlightDocument");
-
-            // Configure UserRoles composite key
+            // Composite key for UserRole (combination of UserID and RoleID)
             modelBuilder.Entity<UserRole>()
-                .HasKey(ur => new { ur.UserId, ur.RoleId });
+                .HasKey(ur => new { ur.UserID, ur.RoleID });
 
-            // Configure UserRoles relationships
+            // UserRole relationships
             modelBuilder.Entity<UserRole>()
                 .HasOne(ur => ur.User)
                 .WithMany(u => u.UserRoles)
-                .HasForeignKey(ur => ur.UserId);
+                .HasForeignKey(ur => ur.UserID)
+                .OnDelete(DeleteBehavior.Cascade); // Set cascade delete if needed
 
             modelBuilder.Entity<UserRole>()
                 .HasOne(ur => ur.Role)
                 .WithMany(r => r.UserRoles)
-                .HasForeignKey(ur => ur.RoleId);
+                .HasForeignKey(ur => ur.RoleID)
+                .OnDelete(DeleteBehavior.Cascade);
 
-            // Configure FlightCrew composite key
-            modelBuilder.Entity<FlightCrew>()
-                .HasKey(fc => new { fc.FlightId, fc.UserId });
+            // FlightDocument relationships
+            modelBuilder.Entity<FlightDocument>()
+                .HasKey(fd => new { fd.FlightID, fd.DocumentID }); // Composite key for FlightDocument
 
-            // Configure FlightCrew relationships
-            modelBuilder.Entity<FlightCrew>()
-                .HasOne(fc => fc.Flight)
-                .WithMany(f => f.FlightCrews)
-                .HasForeignKey(fc => fc.FlightId);
-
-            modelBuilder.Entity<FlightCrew>()
-                .HasOne(fc => fc.User)
-                .WithMany(u => u.FlightCrews)
-                .HasForeignKey(fc => fc.UserId);
-
-            // Configure FlightDocuments relationships
             modelBuilder.Entity<FlightDocument>()
                 .HasOne(fd => fd.Flight)
                 .WithMany(f => f.FlightDocuments)
-                .HasForeignKey(fd => fd.FlightId);
+                .HasForeignKey(fd => fd.FlightID)
+                .OnDelete(DeleteBehavior.Cascade);
 
             modelBuilder.Entity<FlightDocument>()
                 .HasOne(fd => fd.Document)
                 .WithMany(d => d.FlightDocuments)
-                .HasForeignKey(fd => fd.DocumentId);
+                .HasForeignKey(fd => fd.DocumentID)
+                .OnDelete(DeleteBehavior.Cascade);
 
-            // Configure Permissions relationships
-            modelBuilder.Entity<Permission>()
-                .HasOne(p => p.Role)
-                .WithMany(r => r.Permissions)
-                .HasForeignKey(p => p.RoleId);
-
-            modelBuilder.Entity<Permission>()
-                .HasOne(p => p.DocumentType)
-                .WithMany(dt => dt.Permissions)
-                .HasForeignKey(p => p.DocumentTypeId);
-
-            // Configure Documents relationships
+            // Document relationships
             modelBuilder.Entity<Document>()
                 .HasOne(d => d.DocumentType)
                 .WithMany(dt => dt.Documents)
-                .HasForeignKey(d => d.DocumentTypeId);
+                .HasForeignKey(d => d.DocumentTypeID)
+                .OnDelete(DeleteBehavior.Restrict); // Restrict delete on DocumentType
 
             modelBuilder.Entity<Document>()
                 .HasOne(d => d.User)
                 .WithMany(u => u.Documents)
-                .HasForeignKey(d => d.UploadedBy);
+                .HasForeignKey(d => d.UploadedBy)
+                .OnDelete(DeleteBehavior.Restrict); // Prevent cascading deletion when a User is deleted
+
+            // PermissionGroup relationships
+            modelBuilder.Entity<PermissionGroup>()
+                .HasMany(pg => pg.Permissions)
+                .WithOne(p => p.PermissionGroup)
+                .HasForeignKey(p => p.PermissionGroupID)
+                .OnDelete(DeleteBehavior.Cascade); // Set cascade delete if a PermissionGroup is deleted
+
+            // PermissionGroupAssignment relationships
+            modelBuilder.Entity<PermissionGroupAssignment>()
+                .HasOne(pga => pga.PermissionGroup)
+                .WithMany(pg => pg.PermissionGroupAssignments)
+                .HasForeignKey(pga => pga.PermissionGroupID)
+                .OnDelete(DeleteBehavior.Cascade); // Cascade delete if the PermissionGroup is deleted
+
+            modelBuilder.Entity<PermissionGroupAssignment>()
+                .HasOne(pga => pga.Role)
+                .WithMany(r => r.PermissionGroupAssignments)
+                .HasForeignKey(pga => pga.RoleID)
+                .OnDelete(DeleteBehavior.Cascade); // Cascade delete if the Role is deleted
+
+            // Composite key for PermissionGroupAssignment
+            modelBuilder.Entity<PermissionGroupAssignment>()
+                .HasKey(pga => new { pga.PermissionGroupID, pga.RoleID });
 
             base.OnModelCreating(modelBuilder);
         }
     }
+}
