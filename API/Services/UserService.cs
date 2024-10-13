@@ -3,7 +3,7 @@ using API.Entity;
 using API.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
-namespace FlightSystemManagement.Services
+namespace API.Services
 {
     public class UserService : IUserService
     {

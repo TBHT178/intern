@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 using API.DTO;
 using Microsoft.IdentityModel.Tokens;
 
-namespace FlightSystemManagement.Controllers
+namespace API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
@@ -48,7 +48,6 @@ namespace FlightSystemManagement.Controllers
                 Email = registerDto.Email,
                 PasswordHash = registerDto.Password,
                 FullName = registerDto.FullName,
-                PhoneNumber = registerDto.PhoneNumber
             };
 
             try
