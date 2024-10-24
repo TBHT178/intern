@@ -1,5 +1,8 @@
+using System.Security.Claims;
 using API.DTO;
+using API.DTO.Document;
 using API.Services.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace API.Controllers
@@ -14,84 +17,109 @@ namespace API.Controllers
         {
             _documentService = documentService;
         }
-
+        
         // Create a new document
+        [Authorize(Roles = "Admin,Back-Office")] // Chỉ Admin và Nhân viên Back-Office được phép tạo tài liệu
         [HttpPost]
         [Route("create")]
         public async Task<IActionResult> CreateDocument([FromForm] DocumentCreateDto dto, IFormFile file)
         {
-            if (file == null || file.Length == 0)
+            try
             {
-                return BadRequest("No file uploaded.");
+                var document = await _documentService.CreateDocumentAsync(dto, file, HttpContext.User);
+                return CreatedAtAction(nameof(GetDocumentById), new { documentId = document.DocumentID }, document);
             }
-
-            // Chỉ chấp nhận file PDF
-            if (!file.FileName.EndsWith(".pdf"))
+            catch (ArgumentException ex)
             {
-                return BadRequest("Only PDF files are allowed.");
+                return BadRequest(ex.Message);
             }
-
-            // Đường dẫn lưu file PDF
-            var filePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", file.FileName);
-
-            // Tạo thư mục nếu chưa tồn tại
-            if (!Directory.Exists(Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads")))
+            catch (UnauthorizedAccessException ex)
             {
-                Directory.CreateDirectory(Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads"));
+                return Unauthorized(ex.Message);
             }
-
-            // Lưu file PDF vào thư mục
-            using (var stream = new FileStream(filePath, FileMode.Create))
+            catch (Exception ex)
             {
-                await file.CopyToAsync(stream);
+                // Log lỗi tại đây nếu cần
+                return StatusCode(500, new { message = "An error occurred while creating the document.", details = ex.Message });
             }
-
-            // Tạo tài liệu trong cơ sở dữ liệu
-            var document = await _documentService.CreateDocumentAsync(dto, filePath);
-
-            return CreatedAtAction(nameof(GetDocumentById), new { documentId = document.DocumentID }, document);
         }
 
-      
-
         // Get a document by ID
+        [Authorize(Roles = "Admin,Pilot,Crew")] // Admin, Phi công, và Tiếp viên đều có thể xem tài liệu
         [HttpGet("{documentId}")]
         public async Task<IActionResult> GetDocumentById(int documentId)
         {
-            var document = await _documentService.GetDocumentByIdAsync(documentId);
-            if (document == null)
-                return NotFound();
-            return Ok(document);
+            try
+            {
+                var document = await _documentService.GetDocumentByIdAsync(documentId);
+                if (document == null)
+                    return NotFound();
+                return Ok(document);
+            }
+            catch (Exception ex)
+            {
+                // Log lỗi tại đây nếu cần
+                return StatusCode(500, new { message = "An error occurred while retrieving the document.", details = ex.Message });
+            }
         }
 
         // Get all documents
+        [Authorize(Roles = "Admin,Pilot,Crew")] // Admin, Phi công, và Tiếp viên đều có thể xem tất cả tài liệu
         [HttpGet]
         public async Task<IActionResult> GetAllDocuments()
         {
-            var documents = await _documentService.GetAllDocumentsAsync();
-            return Ok(documents);
+            try
+            {
+                var documents = await _documentService.GetAllDocumentsAsync();
+                return Ok(documents);
+            }
+            catch (Exception ex)
+            {
+                // Log lỗi tại đây nếu cần
+                return StatusCode(500, new { message = "An error occurred while retrieving the documents.", details = ex.Message });
+            }
         }
 
         // Update a document
+        [Authorize(Roles = "Admin,Back-Office")] // Chỉ Admin và Nhân viên Back-Office được phép cập nhật tài liệu
         [HttpPut("{documentId}")]
-        public async Task<IActionResult> UpdateDocument(int documentId, DocumentUpdateDto dto)
+        public async Task<IActionResult> UpdateDocument(int documentId, DocumentUpdateDto dto, IFormFile file)
         {
-            var document = await _documentService.UpdateDocumentAsync(documentId, dto);
-            if (document == null)
-                return NotFound();
-            return Ok(document);
+            try
+            {
+                var document = await _documentService.UpdateDocumentAsync(documentId, dto, file);
+                if (document == null)
+                    return NotFound();
+                return Ok(document);
+            }
+            catch (Exception ex)
+            {
+                // Log lỗi tại đây nếu cần
+                return StatusCode(500, new { message = "An error occurred while updating the document.", details = ex.Message });
+            }
         }
 
         // Delete a document
+        [Authorize(Roles = "Admin")] // Chỉ Admin được phép xóa tài liệu
         [HttpDelete("{documentId}")]
         public async Task<IActionResult> DeleteDocument(int documentId)
         {
-            var success = await _documentService.DeleteDocumentAsync(documentId);
-            if (!success)
-                return NotFound();
-            return NoContent();
+            try
+            {
+                var success = await _documentService.DeleteDocumentAsync(documentId);
+                if (!success)
+                    return NotFound();
+                return NoContent();
+            }
+            catch (Exception ex)
+            {
+                // Log lỗi tại đây nếu cần
+                return StatusCode(500, new { message = "An error occurred while deleting the document.", details = ex.Message });
+            }
         }
-        
+
+        // Add document to a flight
+        [Authorize(Roles = "Admin,Back-Office")] // Chỉ Admin và Nhân viên Back-Office được phép thêm tài liệu vào chuyến bay
         [HttpPost("flight/{flightId}/add-document")]
         public async Task<IActionResult> AddDocumentToFlight(int flightId, [FromBody] DocumentCreateDto dto)
         {
@@ -104,7 +132,11 @@ namespace API.Controllers
             {
                 return BadRequest(new { message = ex.Message });
             }
+            catch (Exception ex)
+            {
+                // Log lỗi tại đây nếu cần
+                return StatusCode(500, new { message = "An error occurred while adding the document to the flight.", details = ex.Message });
+            }
         }
-
     }
 }

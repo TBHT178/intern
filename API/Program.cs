@@ -1,23 +1,32 @@
-﻿using API.Data;
+using System.Text;
+using API.Data;
+using API.Middleware;
 using API.Services;
 using API.Services.Interfaces;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-
-builder.Services.AddControllers();
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-
+// Thêm các dịch vụ vào container
 // Hỗ trợ Swagger/OpenAPI cho tài liệu hóa và kiểm thử API
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("MyCors",
+        builder =>
+        {
+            builder.WithOrigins("http://localhost:3000")
+                .AllowAnyMethod() // Allow any HTTP method
+                .AllowAnyHeader()
+                .AllowCredentials();
+        });
+});
+
+
 builder.Services.AddEndpointsApiExplorer();
+
 builder.Services.AddSwaggerGen(c =>
 {
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
@@ -47,19 +56,15 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-//Sử dụng ReferenceHandler.Preserve
-//builder.Services.AddControllers().AddJsonOptions(options =>
-//{
-//    options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.Preserve;
-//});
 
 // Đăng ký dịch vụ Controller để hỗ trợ API
 builder.Services.AddControllers();
-
 // Đăng ký dịch vụ IUserService với triển khai UserService, sử dụng Dependency Injection (DI)
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IDocumentService, DocumentService>();
 builder.Services.AddScoped<IFlightService, FlightService>();
+builder.Services.AddScoped<IPermissionService, PermissionService>();
+builder.Services.AddScoped<ITokenService, TokenService>();
 // Cấu hình xác thực JWT (JSON Web Token) cho ứng dụng
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -72,29 +77,34 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateLifetime = true, // Kiểm tra thời hạn token
             ValidateIssuerSigningKey = true, // Kiểm tra khóa ký token
             ValidIssuer = builder.Configuration["Jwt:Issuer"], // Issuer hợp lệ, lấy từ cấu hình
-            ValidAudience = builder.Configuration["Jwt:Issuer"], // Audience hợp lệ, lấy từ cấu hình
+            ValidAudience = builder.Configuration["Jwt:Audience"], // Audience hợp lệ, lấy từ cấu hình
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"])) // Khóa ký token, lấy từ cấu hình
         };
     });
 
+// Cấu hình DbContext cho ứng dụng, sử dụng Entity Framework Core với SQL Server
 builder.Services.AddDbContext<FlightSystemContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("MyConnection")));
+    options.UseSqlServer(builder.Configuration.GetConnectionString("MyConnection"))); // Lấy chuỗi kết nối từ appsettings.json
 
 var app = builder.Build();
-
-// Configure the HTTP request pipeline.
+app.UseMiddleware<ExceptionMiddleware>();
+// Thiết lập HTTP request pipeline (các bước xử lý yêu cầu HTTP)
 if (app.Environment.IsDevelopment())
 {
+    // Nếu đang ở môi trường phát triển, sử dụng Swagger để kiểm thử và tài liệu hóa API
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();  // Chuyển hướng tất cả các yêu cầu HTTP sang HTTPS
+// Chuyển hướng tất cả các yêu cầu HTTP sang HTTPS
+app.UseHttpsRedirection();
+app.UseCors("MyCors");
 
 // Bật tính năng xác thực và phân quyền
 app.UseAuthentication(); // Kiểm tra xác thực bằng JWT
 app.UseAuthorization(); // Kiểm tra quyền truy cập
-
+// Định tuyến yêu cầu đến các controller
 app.MapControllers();
 
+// Chạy ứng dụng
 app.Run();

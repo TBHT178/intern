@@ -1,0 +1,15 @@
+namespace API.DTO.Permission;
+
+public class PermissionDto
+{
+    public int PermissionID { get; set; }
+    public int DocumentID { get; set; }
+    public int PermissionGroupID { get; set; }
+    public bool CanView { get; set; }
+    public bool CanEdit { get; set; }
+    public bool CanDownload { get; set; }
+    
+    public bool NoPermission { get; set; } // Xác định khi không có quyền
+
+    
+}

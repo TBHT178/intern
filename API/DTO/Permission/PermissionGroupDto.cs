@@ -1,4 +1,4 @@
-namespace API.DTO
+namespace API.DTO.Permission
 {
     
     public class PermissionGroupDto

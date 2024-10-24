@@ -1,5 +1,5 @@
-namespace API.Entity { 
-    
+namespace API.Entity
+{
     public class Flight
     {
         public int FlightID { get; set; } // Primary key

@@ -3,6 +3,7 @@ using API.Entity;
 using API.Services;
 using Microsoft.AspNetCore.Mvc;
 using System.Threading.Tasks;
+using API.DTO.Flight;
 using API.Services.Interfaces;
 
 namespace API.Controllers
@@ -46,10 +47,21 @@ namespace API.Controllers
 
         // READ All Flights
         [HttpGet]
-        public async Task<IActionResult> GetAllFlights()
+        public async Task<IActionResult> GetAllFlights([FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10)
         {
             var flights = await _flightService.GetAllFlightsAsync();
-            return Ok(flights);
+            var paginatedFlights = flights
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .ToList();
+        
+            return Ok(new
+            {
+                PageNumber = pageNumber,
+                PageSize = pageSize,
+                TotalRecords = flights.Count,
+                Data = paginatedFlights
+            });
         }
 
         // UPDATE Flight
@@ -76,6 +88,25 @@ namespace API.Controllers
             }
 
             return NoContent();
+        }
+        
+        [HttpPost("{flightId}/documents/{documentId}")]
+        public async Task<IActionResult> AddDocumentToFlight(int flightId, int documentId)
+        {
+            try
+            {
+                var result = await _flightService.AddDocumentToFlight(flightId, documentId);
+                if (result)
+                {
+                    return Ok("Tài liệu đã được thêm vào chuyến bay thành công.");
+                }
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+
+            return BadRequest("Không thể thêm tài liệu vào chuyến bay.");
         }
     }
 }

@@ -1,5 +1,7 @@
+using System.Security.Claims;
 using API.Data;
 using API.DTO;
+using API.DTO.Document;
 using API.Entity;
 using API.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -16,52 +18,123 @@ namespace API.Services
         }
 
         // Create a new document
-        public async Task<Document> CreateDocumentAsync(DocumentCreateDto dto, string filePath)
+        public async Task<Document> CreateDocumentAsync(DocumentCreateDto dto, IFormFile file, ClaimsPrincipal user)
         {
+            // Kiểm tra file
+            if (file == null || file.Length == 0)
+            {
+                throw new ArgumentException("No file uploaded.");
+            }
+
+            // Chỉ chấp nhận file PDF và DOCX
+            var allowedExtensions = new[] { ".pdf", ".docx" };
+            var fileExtension = Path.GetExtension(file.FileName).ToLower();
+
+            if (!allowedExtensions.Contains(fileExtension))
+            {
+                throw new ArgumentException("Only PDF and DOCX files are allowed.");
+            }
+
+            // Đường dẫn lưu file
+            var filePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", file.FileName);
+
+            // Tạo thư mục nếu chưa tồn tại
+            if (!Directory.Exists(Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads")))
+            {
+                Directory.CreateDirectory(Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads"));
+            }
+
+            // Lưu file vào thư mục
+            using (var stream = new FileStream(filePath, FileMode.Create))
+            {
+                await file.CopyToAsync(stream);
+            }
+
+            // Lấy CreatorId từ token Bearer
+            var creatorIdClaim = user.FindFirst(ClaimTypes.NameIdentifier);
+            if (creatorIdClaim == null)
+            {
+                throw new UnauthorizedAccessException("User not found.");
+            }
+
+            // Gán CreatorId từ Bearer token thay vì từ phía client
+            int creatorId = int.Parse(creatorIdClaim.Value);
+
+            // Tạo tài liệu trong cơ sở dữ liệu
             var document = new Document
             {
                 Title = dto.Title,
                 Type = dto.Type,
-                CreatedDate = dto.CreateDate,
-                Version = dto.Version,
-                CreatorID = dto.CreatorId,
                 Note = dto.Note,
-                FilePath = filePath  // Đường dẫn file PDF được upload
+                CreatorID = creatorId,
+                FilePath = filePath
             };
 
             _context.Documents.Add(document);
             await _context.SaveChangesAsync();
+
             return document;
         }
-        
-        
+
         // Get a document by ID
         public async Task<Document> GetDocumentByIdAsync(int documentId)
         {
             return await _context.Documents
-                                 .Include(d => d.Creator)
-                                 .FirstOrDefaultAsync(d => d.DocumentID == documentId);
+                .Include(d => d.FlightDocuments) // Include FlightDocuments
+                .ThenInclude(fd => fd.Flight)    // Include the Flight details if needed
+                .FirstOrDefaultAsync(d => d.DocumentID == documentId);
         }
 
         // Get all documents
         public async Task<List<Document>> GetAllDocumentsAsync()
         {
-            return await _context.Documents
-                                 .Include(d => d.Creator)
-                                 .ToListAsync();
+            return await _context.Documents.ToListAsync();  // No need to include Creator
         }
 
         // Update a document
-        public async Task<Document> UpdateDocumentAsync(int documentId, DocumentUpdateDto dto)
+        public async Task<Document> UpdateDocumentAsync(int documentId, DocumentUpdateDto dto, IFormFile file)
         {
             var document = await _context.Documents.FindAsync(documentId);
             if (document == null)
                 return null;
 
+            // Increment document version
+            var currentVersionParts = document.Version.Split('.');
+            if (currentVersionParts.Length == 2 &&
+                int.TryParse(currentVersionParts[0], out int majorVersion) &&
+                int.TryParse(currentVersionParts[1], out int minorVersion))
+            {
+                minorVersion += 1;
+                document.Version = $"{majorVersion}.{minorVersion}";
+            }
+            else
+            {
+                document.Version = "1.1";
+            }
+
+            // Update document properties
             document.Title = dto.Title;
             document.Type = dto.Type;
-            document.Version = dto.Version;
             document.Note = dto.Note;
+
+            // Handle file updates
+            if (file != null && file.Length > 0)
+            {
+                var filePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", file.FileName);
+                if (!Directory.Exists(Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads")))
+                {
+                    Directory.CreateDirectory(Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads"));
+                }
+                if (!string.IsNullOrEmpty(document.FilePath) && File.Exists(document.FilePath))
+                {
+                    File.Delete(document.FilePath);
+                }
+                using (var stream = new FileStream(filePath, FileMode.Create))
+                {
+                    await file.CopyToAsync(stream);
+                }
+                document.FilePath = filePath;
+            }
 
             _context.Documents.Update(document);
             await _context.SaveChangesAsync();
@@ -79,37 +152,30 @@ namespace API.Services
             await _context.SaveChangesAsync();
             return true;
         }
-        
+
+        // Add document to a flight
         public async Task<Document> AddDocumentToFlightAsync(int flightId, DocumentCreateDto dto)
         {
-            // Lấy chuyến bay từ database
             var flight = await _context.Flights
                 .Include(f => f.FlightDocuments)
                 .FirstOrDefaultAsync(f => f.FlightID == flightId);
 
-            // Kiểm tra nếu chuyến bay không tồn tại hoặc đã hoàn tất
             if (flight == null || flight.IsFlightCompleted)
             {
-                throw new InvalidOperationException("Chuyến bay không tồn tại hoặc đã hoàn tất, không thể thêm tài liệu.");
+                throw new InvalidOperationException("Flight does not exist or is already completed.");
             }
 
-            // Tạo tài liệu mới từ DTO
             var document = new Document
             {
                 Title = dto.Title,
                 Type = dto.Type,
-                CreatedDate = dto.CreateDate,
-                Version = dto.Version,
-                CreatorID = dto.CreatorId,
-                FilePath = dto.FilePath,
                 Note = dto.Note,
+                CreatedDate = DateTime.Now
             };
 
-            // Thêm tài liệu vào hệ thống
             _context.Documents.Add(document);
             await _context.SaveChangesAsync();
 
-            // Tạo liên kết tài liệu với chuyến bay
             var flightDocument = new FlightDocument
             {
                 FlightID = flight.FlightID,
@@ -122,6 +188,5 @@ namespace API.Services
 
             return document;
         }
-
     }
 }

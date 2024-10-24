@@ -1,11 +1,10 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using System.Text;
+
 using API.Entity;
 using API.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using API.DTO;
-using Microsoft.IdentityModel.Tokens;
+using API.DTO.User;
+using Microsoft.AspNetCore.Authorization;
 
 namespace API.Controllers
 {
@@ -15,43 +14,62 @@ namespace API.Controllers
     {
         private readonly IUserService _userService;
         private readonly IConfiguration _configuration;
+        private readonly ITokenService _tokenService;
 
-        public UserController(IUserService userService, IConfiguration configuration)
+        public UserController(IUserService userService, IConfiguration configuration, ITokenService tokenService)
         {
             _userService = userService;
             _configuration = configuration;
+            _tokenService = tokenService;
         }
 
         // Lấy danh sách tất cả người dùng
         [HttpGet]
         public async Task<IActionResult> GetUsers()
         {
-            var users = await _userService.GetUsersAsync();
-            return Ok(users);
+            try
+            {
+                var users = await _userService.GetUsersAsync();
+                return Ok(users);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "An error occurred while retrieving users.", details = ex.Message });
+            }
         }
 
         // Lấy thông tin người dùng theo ID
         [HttpGet("{id}")]
         public async Task<IActionResult> GetUserById(int id)
         {
-            var user = await _userService.GetUserByIdAsync(id);
-            if (user == null) return NotFound();
-            return Ok(user);
+            try
+            {
+                var user = await _userService.GetUserByIdAsync(id);
+                if (user == null) return NotFound();
+                return Ok(user);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "An error occurred while retrieving the user.", details = ex.Message });
+            }
         }
 
         // Tạo người dùng mới RegisterDto
         [HttpPost("register")]
         public async Task<IActionResult> CreateUser([FromBody] RegisterDto registerDto)
         {
-            var user = new User
-            {
-                Email = registerDto.Email,
-                PasswordHash = registerDto.Password,
-                FullName = registerDto.FullName,
-            };
-
             try
             {
+                var user = new User
+                {
+                    Email = registerDto.Email,
+                    PasswordHash = registerDto.Password,
+                    FullName = registerDto.FullName,
+                    Role = "Crew",
+                    RefreshToken = _tokenService.CreateRefreshToken(), // Tạo refresh token
+                    RefreshTokenExpiryTime = DateTime.Now.AddDays(7)
+                };
+
                 var createdUser = await _userService.CreateUserAsync(user);
                 return CreatedAtAction(nameof(GetUserById), new { id = createdUser.UserID }, createdUser);
             }
@@ -59,55 +77,89 @@ namespace API.Controllers
             {
                 return BadRequest(new { message = ex.Message });
             }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "An error occurred while creating the user.", details = ex.Message });
+            }
         }
 
         // Xóa người dùng
+        [Authorize(Roles = "Admin")]
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteUser(int id)
         {
-            var result = await _userService.DeleteUserAsync(id);
-            if (!result) return NotFound();
-            return NoContent();
+            try
+            {
+                var result = await _userService.DeleteUserAsync(id);
+                if (!result) return NotFound();
+                return NoContent();
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "An error occurred while deleting the user.", details = ex.Message });
+            }
         }
 
-        // Đăng nhập người dùng loginDto
+        // Đăng nhập người dùng
         [HttpPost("login")]
         public async Task<IActionResult> Authenticate([FromBody] LoginDto loginDto)
         {
             var user = await _userService.AuthenticateAsync(loginDto.Email, loginDto.Password);
-            if (user == null) return Unauthorized();
+            if (user == null)
+                return Unauthorized("Invalid credentials or incorrect email domain.");
 
-            // Generate JWT token
-            var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]);
+            // Tạo access token
+            var accessToken = _tokenService.CreateAccessToken(user);
 
-            // Get user roles
-            var userRoles = await _userService.GetUserRolesAsync(user.UserID);
+            // Tạo refresh token
+            var refreshToken = _tokenService.CreateRefreshToken();
+            await _userService.SaveRefreshTokenAsync(user.UserID, refreshToken);
 
-            var claims = new List<Claim>
+            return Ok(new
             {
-                new Claim(ClaimTypes.Email, user.Email),
-                new Claim(ClaimTypes.NameIdentifier, user.UserID.ToString())
-            };
-
-            // Add roles to the claims
-            foreach (var role in userRoles)
+                AccessToken = accessToken,
+                RefreshToken = refreshToken,
+            });
+        }
+        
+        // API để vô hiệu hóa tài khoản (chỉ Admin mới có quyền)
+        [HttpPut("disable")]
+        [Authorize(Roles = "Admin")] // Chỉ Admin mới có thể vô hiệu hóa tài khoản
+        public async Task<IActionResult> DisableUser([FromBody] DisableAccountDto dto)
+        {
+            try
             {
-                claims.Add(new Claim(ClaimTypes.Role, role.RoleName));
+                var result = await _userService.DisableUserByEmailAsync(dto.Email);
+                if (result)
+                {
+                    return Ok("User disabled successfully");
+                }
+                return NotFound("User not found");
             }
-
-            var tokenDescriptor = new SecurityTokenDescriptor
+            catch (Exception ex)
             {
-                Subject = new ClaimsIdentity(claims),
-                Expires = DateTime.UtcNow.AddHours(1),
-                SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key),
-                    SecurityAlgorithms.HmacSha256Signature)
-            };
+                return StatusCode(500, $"Internal server error: {ex.Message}");
+            }
+        }
 
-            var token = tokenHandler.CreateToken(tokenDescriptor);
-            var tokenString = tokenHandler.WriteToken(token);
-
-            return Ok(new { Token = tokenString });
+        // API để bật lại tài khoản người dùng (chỉ Admin mới có quyền)
+        [HttpPut("enable")]
+        [Authorize(Roles = "Admin")] // Chỉ Admin mới có thể bật lại tài khoản
+        public async Task<IActionResult> EnableUser([FromBody] DisableAccountDto dto)
+        {
+            try
+            {
+                var result = await _userService.EnableUserByEmailAsync(dto.Email);
+                if (result)
+                {
+                    return Ok("User enabled successfully");
+                }
+                return NotFound("User not found");
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Internal server error: {ex.Message}");
+            }
         }
 
     }
