@@ -23,5 +23,8 @@ namespace API.Services.Interfaces
         
         // Add document to flight
         Task<bool> AddDocumentToFlight(int flightId, int documentId);
+        
+        
+        Task<Flight> UpdateFlightCompletionStatusAsync(int flightId, bool isCompleted);
     }
 }
